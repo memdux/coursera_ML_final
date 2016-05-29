@@ -1,0 +1,289 @@
+
+# Practical Machine Learning - Project
+#### author: Miguel Elduque
+#### 29th May 2016
+
+### Project description:
+
+Giving a set of data coming from a different accelerometers on the belt, forearm, arm and dubell of 6 participants we are going to define an algorithm to identify if a give exercise (in our case barbell) is executed correctly.
+
+### Executive Summary:
+
+1) **Data cleansing extremely important** for the algorithm selection: provided set of data contains many **variables with NA** that are not relevant for the algorithm, some **information is not relevant** and even the quantity of records can **affect too much the performance** of the algorithms without adding much to the accuracy.
+
+2) Executing the algorithm selection without excluding the irrelevant variables drives to **overfitting and incorrect out of sample predictions**
+
+3) **Random forest algorithm provides extremely good results** and is the final model i selected to perform the quiz. Using cross-validation (5 folds) increases only a bit the accuracy of the model
+
+
+
+#### **Load Test and Training Data sets:**
+```{r message=FALSE}
+setwd("~/Dropbox/Coursera/Practical Machine Learning"); require(caret) ; require(doMC)
+
+training = read.csv("pml-training.csv", na.strings=c("NA",""), dec = ".")
+test = read.csv("pml-testing.csv", dec =".")
+```
+
+
+#### **Data pre-processing: **
+ 
+There are a lot of columns in the data set and we can see in the summary that there are a large number of NA in them. 
+
+I exclude those columns that contain more than 80% of entries = NA (80% of 19622 obs = 15697). We keep 60 variables that will be the entry for our model. I take this approach based on the performance problems that can be derived from large number of predictors and following some advice found in the forum of the course.
+
+```{r}
+cut<-apply(!is.na(training),2,sum)>15697
+training_cut<-training[,cut] ;
+test_cut<-test[,cut]
+````
+
+I exclude as well the 7th first rows as they do not contain data useful for prediction.
+
+In addition, and due to performance problems  i am taking only a subset of the overall training data set for the model train. Results of the model should confirm if this approach is valid or should be revisited.
+
+Finally i check there are no variables on the training set which meet the near-zero-variance test. 
+
+```{r}
+colnames(training_cut)[1:7]
+training_cut2<- training_cut[,8:length(colnames(training_cut))]
+test_cut2<- test_cut[,8:length(colnames(test_cut))]
+
+set.seed(88888)
+train_subset<-createDataPartition(y=training_cut2$classe,p=0.3,list=FALSE)
+train_subset_allCols <-createDataPartition(y=training_cut$classe,p=0.3,list=FALSE)
+
+training1<-training_cut2[train_subset,] ; test1<-training_cut2[-train_subset,]
+training_allCols<-training_cut[train_subset,] ; test1_allCols<-training_cut[-train_subset,]
+
+nzv <- nearZeroVar(training1)
+```
+
+Near Zero Value = 0 so there are **no variables to exclude.**
+
+I have calculated several models to select the best algorithm. The code for all of them can be found in the .rmd file. 
+
+Code below is an example of how i have executed the different models:
+
+```{r echo=FALSE, results='hide',include =FALSE,message=FALSE, cache = TRUE}
+# Code for pre-processing:
+
+M <- abs(cor(training1[-53]))
+diag(M) <-0
+which(M>0.8, arr.ind = T)
+names(training1)[c(3,1)]
+plot(training1[,3], training1[,1])
+
+preProcValues <- preProcess(training1[,-53], method = "pca", pcaComp = 30)
+
+train_pca <- predict(preProcValues, training1[,-53])
+
+model_pca<-train(training1$classe~.,data=train_pca,method="rf",
+                trControl=trainControl(method="cv",number=5),
+                prox=TRUE,allowParallel=TRUE)
+
+test_pca <- predict(preProcValues, test1[,-53])
+
+confusionMatrix(test1$classe, predict(model_pca, test_pca))
+
+# the direct option for pre-processing another option
+
+model_pca2<-train(training1$classe~.,data=training1,method="rf",
+                 preProcess = "pca",
+                trControl=trainControl(method="cv",number=5),
+                prox=TRUE,allowParallel=TRUE)
+
+test_pca <- predict(preProcValues, test1[,-53])
+
+confusionMatrix(test1$classe, predict(model_pca2, test1))
+
+
+# Model 3 is Gradient Boost Machine
+
+# Model 4 is Naive Bayes
+```
+
+```{r cache = TRUE}
+registerDoMC(cores = 5); start.time <- Sys.time()
+
+model_1<-train(classe~.,data=training1,method="rf",
+                trControl=trainControl(method="cv",number=5),
+                prox=TRUE,allowParallel=TRUE)
+
+end.time <- Sys.time(); time.taken_model1 <- end.time - start.time
+
+predict_test1_model1 = predict(model_1, test1)
+predict_quiz_model1 = predict(model_1, test_cut)
+
+print(confusionMatrix(predict_test1_model1, test1$classe), digits=4)
+```
+
+```{r run_model_0, echo=FALSE, results='hide',include =FALSE,message=FALSE, cache = TRUE}
+start.time <- Sys.time()
+model_0<-train(classe~.,data=training_allCols,method="rf",
+                trControl=trainControl(method="cv",number=5),
+                prox=TRUE,allowParallel=TRUE)
+end.time <- Sys.time()
+time.taken_model0 <- end.time - start.time
+print(model_0, digits = 3)
+predict_test1_model0 = predict(model_0, test1_allCols)
+predict_quiz_model0 = predict(model_0, test_cut)
+print(confusionMatrix(predict_test1_model0, test1_allCols$classe), digits=4)
+confusionMatrix(predict_test1_model0 , test1$classe)$overall[1]
+predict_quiz_model0
+
+````
+```{r run_model_2, echo=FALSE, results='hide',include =FALSE, message=FALSE, cache = TRUE, eval = TRUE}
+
+start.time <- Sys.time()
+model_2<-train(classe~.,data=training1,method="rf",
+                # trControl=trainControl(method="cv",number=5),
+                prox=TRUE,allowParallel=TRUE)
+end.time <- Sys.time()
+time.taken_model2 <- end.time - start.time
+
+print(model_2, digits = 3)
+predict_test1_model2 = predict(model_2, test1)
+predict_quiz_model2 = predict(model_2, test_cut)
+print(confusionMatrix(predict_test1_model2, test1$classe), digits=4)
+confusionMatrix(predict_test1_model2 , test1$classe)$overall[1]
+predict_quiz_model2
+
+````
+
+```{r run_model_3, echo=FALSE, results='hide',include =FALSE,message=FALSE, cache = TRUE, eval = TRUE}
+
+start.time <- Sys.time()
+model_3<-train(classe~.,data=training1,method="gbm")
+                #trControl=trainControl(method="cv",number=5),
+                # prox=TRUE) # allowParallel=TRUE)
+end.time <- Sys.time()
+time.taken_model3 <- end.time - start.time
+
+print(model_3, digits = 3)
+predict_test1_model3 = predict(model_3, test1)
+predict_quiz_model3 = predict(model_3, test_cut)
+print(confusionMatrix(predict_test1_model3, test1$classe), digits=4)
+confusionMatrix(predict_test1_model3 , test1$classe)$overall[1]
+predict_quiz_model3
+
+````
+
+```{r run_model_4, echo=FALSE, results='hide',include =FALSE, message=FALSE, cache = TRUE, eval = TRUE}
+
+start.time <- Sys.time()
+model_4 <-train(classe~.,data=training1,method="nb",
+                prox=TRUE,allowParallel=TRUE)
+end.time <- Sys.time()
+time.taken_model4 <- end.time - start.time
+print(model_4, digits = 3)
+predict_test1_model4 = predict(model_4, test1)
+predict_quiz_model4 = predict(model_4, test_cut)
+print(confusionMatrix(predict_test1_model4, test1$classe), digits=4)
+confusionMatrix(predict_test1_model4 , test1$classe)$overall[1]
+predict_quiz_model4
+
+````
+
+```{r run_model_5, echo=FALSE, results='hide',message=FALSE, include =FALSE, cache = TRUE, eval = TRUE}
+
+start.time <- Sys.time()
+model_5 <-train(classe~.,data=training1,method="nnet",
+                prox=TRUE,allowParallel=TRUE)
+end.time <- Sys.time()
+time.taken_model5 <- end.time - start.time
+print(model_5, digits = 3)
+predict_test1_model5 = predict(model_5, test1)
+predict_quiz_model5 = predict(model_5, test_cut)
+print(confusionMatrix(predict_test1_model5, test1$classe), digits=4)
+confusionMatrix(predict_test1_model5 , test1$classe)$overall[1]
+predict_quiz_model5
+
+
+
+```
+```{r  echo=FALSE, results='hide',message=FALSE, include =FALSE, cache = TRUE, eval = FALSE}
+confusionMatrix(predict_test1_model0 , test1$classe)$overall[1]
+time.taken_model0
+
+confusionMatrix(predict_test1_model2 , test1$classe)$overall[1]
+time.taken_model2
+
+confusionMatrix(predict_test1_model3 , test1$classe)$overall[1]
+time.taken_model3
+
+confusionMatrix(predict_test1_model4 , test1$classe)$overall[1]
+time.taken_model4
+
+confusionMatrix(predict_test1_model5 , test1$classe)$overall[1]
+time.taken_model5
+
+```
+
+#### **Summary of models used sorted from higher accuracy to lower:**
+
+**1) Random forest using all the variables**
+
+Accuracy = `r confusionMatrix(predict_test1_model0 , test1$classe)$overall[1]`
+
+Results for the quiz  = `r predict_quiz_model0`
+
+Results from the quiz show overfitting. This model is therefore not chosen.
+
+
+**2) Random forest without Cross-Validation**
+
+Accuracy = `r confusionMatrix(predict_test1_model2 , test1$classe)$overall[1]`
+
+Results for the quiz  = `r predict_quiz_model2`
+
+Execution time = `r time.taken_model2`
+
+This is the model with higher accuracy and the one i chose for this exercise.
+
+
+**3) Random forest using 5-fold Cross-Validation:**
+
+Accuracy = `r confusionMatrix(predict_test1_model1 , test1$classe)$overall[1]`
+
+Results for the quiz  = `r predict_quiz_model1`
+
+Execution time = `r time.taken_model1`
+
+
+**4) GBM model no Cross-Validation**
+
+Accuracy = `r confusionMatrix(predict_test1_model3 , test1$classe)$overall[1]`
+
+Results for the quiz  = `r predict_quiz_model3`
+
+Execution time = `r time.taken_model3`
+
+**5) Method NB**
+
+Accuracy = `r confusionMatrix(predict_test1_model4 , test1$classe)$overall[1]`
+
+Results for the quiz  = `r predict_quiz_model4`
+
+Execution time = `r time.taken_model4`
+
+**6) Neural Networks**
+
+Accuracy = `r confusionMatrix(predict_test1_model5 , test1$classe)$overall[1]`
+
+Results for the quiz  = `r predict_quiz_model5`
+
+Execution time = `r time.taken_model5`
+
+
+```{r eval = FALSE}
+confusionMatrix(predict_test1_model1 , test1$classe)$overall[1]
+time.taken_model1
+```
+
+Finally we can see the most important variables that my selected model considers:
+
+```{r eval = TRUE}
+rfVarImp <- varImp(model_1, scale = TRUE)
+plot(rfVarImp)
+```
